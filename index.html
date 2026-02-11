@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Med Study Sheet Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#007bff">
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- Tesseract.js for OCR -->
+  <script src="https://unpkg.com/tesseract.js@v5.0.3/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      color: #222;
+    }
+    body {
+      margin: 0;
+      padding: 1rem;
+    }
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+      padding: 1.5rem 1.75rem 2rem;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+    }
+    .subtitle {
+      margin-top: 0.25rem;
+      font-size: 0.9rem;
+      color: #666;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .controls > * {
+      font-size: 0.9rem;
+    }
+    input[type="file"] {
+      max-width: 250px;
+    }
+    select, button {
+      padding: 0.35rem 0.6rem;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #fafafa;
+      cursor: pointer;
+    }
+    button {
+      border: none;
+      background: #007bff;
+      color: white;
+      font-weight: 500;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .status {
+      font-size: 0.8rem;
+      color: #555;
+      min-height: 1em;
+      margin-bottom: 0.5rem;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+      gap: 1.25rem;
+    }
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+    .canvas-wrapper {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 0.5rem;
+      background: #fafafa;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 4px;
+      background: #ffffff;
+    }
+    .hint {
+      font-size: 0.78rem;
+      color: #777;
+      margin-top: 0.35rem;
+    }
+    .sidebar {
+      border-left: 1px solid #eee;
+      padding-left: 1rem;
+    }
+    @media (max-width: 900px) {
+      .sidebar {
+        border-left: none;
+        border-top: 1px solid #eee;
+        padding-left: 0;
+        padding-top: 1rem;
+      }
+    }
+    .sidebar h2 {
+      font-size: 1rem;
+      margin-top: 0;
+      margin-bottom: 0.25rem;
+    }
+    .sidebar p {
+      font-size: 0.85rem;
+      margin-top: 0;
+      color: #555;
+    }
+    .word-bank {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      border-radius: 6px;
+      background: #fafafa;
+      border: 1px solid #eee;
+      max-height: 400px;
+      overflow-y: auto;
+      font-size: 0.88rem;
+    }
+    .word-bank ul {
+      padding-left: 1.1rem;
+      margin: 0.15rem 0 0;
+    }
+    .word-bank li {
+      margin: 0.12rem 0;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      background: #e8f0ff;
+      color: #24428a;
+      margin-left: 0.3rem;
+    }
+    .difficulty-label {
+      font-weight: 500;
+    }
+    .small-note {
+      font-size: 0.75rem;
+      color: #777;
+      margin-top: 0.5rem;
+    }
+    .error {
+      color: #b00020;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Med Study Sheet Generator</h1>
+    <p class="subtitle">
+      Upload your notes, automatically hide anatomy/phys, medical terms, meds, and change words, and get a word bank to quiz yourself.
+    </p>
+
+    <div class="controls">
+      <input type="file" id="imageInput" accept="image/*">
+      <label>
+        <span class="difficulty-label">Difficulty:</span>
+        <select id="difficultySelect">
+          <option value="easy">Easy (≈35% of key words removed)</option>
+          <option value="medium" selected>Medium (≈65% removed)</option>
+          <option value="hard">Hard (≈100% removed)</option>
+        </select>
+      </label>
+      <button id="processBtn" disabled>Generate Study Sheet</button>
+      <button id="resetBtn" disabled>Reset to Original</button>
+    </div>
+    <div id="status" class="status"></div>
+
+    <div class="layout">
+      <div>
+        <div class="canvas-wrapper">
+          <canvas id="sheetCanvas"></canvas>
+        </div>
+        <p class="hint">
+          • For best results, use a clear, straight-on image with readable text.<br>
+          • After processing, long-press the image → <strong>Save Image</strong> to keep your practice sheet.
+        </p>
+      </div>
+
+      <aside class="sidebar">
+        <h2>Word Bank <span id="wordCountBadge" class="badge" style="display:none;"></span></h2>
+        <p>These are the terms and change-words that were removed from the sheet.</p>
+        <div id="wordBank" class="word-bank">
+          <em>No sheet processed yet.</em>
+        </div>
+        <p class="small-note">
+          Note: OCR may miss some words or mis-read them. If a key term is missing from the word bank, it might not have been recognized.
+        </p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // Register service worker for PWA/offline use
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(err => {
+          console.log('Service worker registration failed:', err);
+        });
+      });
+    }
+
+    // --- Basic references ---
+    const imageInput = document.getElementById('imageInput');
+    const processBtn = document.getElementById('processBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const statusEl = document.getElementById('status');
+    const difficultySelect = document.getElementById('difficultySelect');
+    const canvas = document.getElementById('sheetCanvas');
+    const ctx = canvas.getContext('2d');
+    const wordBankEl = document.getElementById('wordBank');
+    const wordCountBadge = document.getElementById('wordCountBadge');
+
+    let img = new Image();
+    let originalDataUrl = null;
+
+    // Difficulty → proportion of key terms to hide
+    const DIFFICULTY_LEVELS = {
+      easy: 0.35,
+      medium: 0.65,
+      hard: 1.0
+    };
+
+    // Change words (directionality, trends)
+    const CHANGE_WORDS = new Set([
+      "increase","increased","increases","increasing",
+      "decrease","decreased","decreases","decreasing",
+      "higher","lower","high","low",
+      "elevated","elevation",
+      "reduced","reduction",
+      "upregulated","upregulation","upregulate",
+      "downregulated","downregulation","downregulate",
+      "more","less","greater","lesser",
+      "rise","rises","rising",
+      "fall","falls","falling",
+      "improve","improves","improved","improvement",
+      "worsen","worsens","worsened","worsening"
+    ]);
+
+    // Core anatomy/physiology + general medical terminology
+    const MEDICAL_TERMS = new Set([
+      // anatomy/physiology
+      "artery","arteries","vein","veins","capillary","capillaries","arteriole","venule",
+      "heart","atria","atrium","ventricle","ventricles","aorta","pulmonary",
+      "cardiac","myocardium","endocardium","pericardium",
+      "blood","plasma","erythrocyte","erythrocytes","leukocyte","leukocytes",
+      "thrombocyte","thrombocytes","rbc","rbcs","wbc","wbcs","platelet","platelets",
+      "hemoglobin","hematocrit",
+      "lung","lungs","bronchus","bronchi","bronchiole","bronchioles","alveolus","alveoli",
+      "trachea","larynx","pharynx","diaphragm",
+      "kidney","kidneys","nephron","nephrons","glomerulus","glomeruli","tubule","tubules",
+      "ureter","ureters","urethra","bladder",
+      "liver","hepatocyte","hepatocytes","bile","gallbladder",
+      "stomach","intestine","intestines","duodenum","jejunum","ileum","colon","rectum","esophagus",
+      "pancreas","islet","islets","acinar",
+      "brain","cerebrum","cerebellum","brainstem","medulla","pons","midbrain","thalamus","hypothalamus",
+      "neuron","neurons","neuroglia","axon","axons","dendrite","dendrites",
+      "synapse","synapses","synaptic","neurotransmitter","neurotransmitters",
+      "nerve","nerves","spinal","cord","ganglion","ganglia",
+      "muscle","muscles","myofiber","myofibers","sarcomere","sarcomeres","myosin","actin",
+      "tendon","tendons","ligament","ligaments","fascia",
+      "bone","bones","osteon","osteocyte","osteocytes","osteoblast","osteoblasts","osteoclast","osteoclasts","marrow",
+      "skull","cranium","vertebra","vertebrae","rib","ribs","sternum","pelvis","femur","tibia","fibula","humerus","radius","ulna","scapula","clavicle",
+      "skin","epidermis","dermis","hypodermis","melanocyte","melanocytes","keratinocyte","keratinocytes","sebaceous","sudoriferous",
+      "endocrine","hormone","hormones","gland","glands","pituitary","thyroid","parathyroid","adrenal","gonad","gonads","ovary","ovaries","testis","testes",
+      "lymph","lymphatic","lymphocyte","lymphocytes","thymus","spleen","node","nodes",
+      "immune","immunity","antibody","antibodies","antigen","antigens","phagocyte","phagocytes",
+      "macrophage","macrophages","receptor","receptors","afferent","efferent","sensory","motor",
+      "systole","diastole","ventilation","perfusion","filtration","reabsorption","secretion",
+
+      // pathophys & general med terminology
+      "hypertension","hypotension","tachycardia","bradycardia","tachypnea","bradypnea",
+      "edema","sepsis","septic","shock","infarction","ischemia","ischemic","necrosis","necrotic",
+      "inflammation","inflamed","infected","infection","chronic","acute","subacute",
+      "benign","malignant","carcinoma","sarcoma","tumor","neoplasm",
+      "failure","insufficiency","obstruction","occlusion","stenosis","regurgitation",
+      "metastasis","metastatic",
+      "hyperkalemia","hypokalemia","hypernatremia","hyponatremia",
+      "hyperglycemia","hypoglycemia","hypercalcemia","hypocalcemia",
+      "anemia","anemic","leukocytosis","leukopenia","thrombocytopenia",
+      "pneumonia","copd","asthma","emphysema","fibrosis",
+      "diabetes","diabetic","nephropathy","retinopathy","neuropathy",
+      "cirrhosis","hepatitis","pancreatitis","gastritis","colitis",
+      "osteoporosis","arthritis","osteoarthritis","rheumatoid",
+      "stroke","cva","tia","myocardial","angina",
+      "analgesic","antipyretic","antibiotic","anticoagulant","antiplatelet","antihypertensive",
+      "bronchodilator","diuretic","sedative","anesthetic"
+    ]);
+
+    // Medical/anatomy stems (prefix/suffix-like patterns)
+    const STEMS = [
+      "cardio","neuro","hepat","nephro","pulmon","gastro","derm","dermo",
+      "osteo","myo","encephal","angi","phleb","arthr","cranio","hemo","hema","pharm","onc","uro","pneumo"
+    ];
+
+    // Medication suffix patterns (very heuristic)
+    const MEDICATION_SUFFIXES = [
+      "olol","pril","sartan","dipine","statin","cillin","cycline","mycin","micin",
+      "floxacin","azole","prazole","caine","mab","nib","tidine","sone","sonide","solone","dine","dopa","pramide"
+    ];
+
+    // Common medication names (not exhaustive, just a boost)
+    const COMMON_MEDICATIONS = new Set([
+      "aspirin","ibuprofen","acetaminophen","paracetamol","naproxen",
+      "warfarin","heparin","enoxaparin","apixaban","rivaroxaban",
+      "metoprolol","propranolol","atenolol","lisinopril","enalapril","captopril",
+      "losartan","valsartan","amlodipine","nifedipine",
+      "simvastatin","atorvastatin","rosuvastatin",
+      "insulin","metformin","glipizide",
+      "albuterol","salbutamol","ipratropium","tiotropium",
+      "omeprazole","pantoprazole","lansoprazole",
+      "morphine","fentanyl","hydromorphone",
+      "vancomycin","ceftriaxone","azithromycin","amoxicillin","ampicillin","clindamycin",
+      "gentamicin","tobramycin","doxycycline","ciprofloxacin","levofloxacin",
+      "prednisone","dexamethasone","hydrocortisone",
+      "diphenhydramine","loratadine","cetirizine"
+    ]);
+
+    function isMedicalOrChangeWord(text) {
+      if (!text) return false;
+      let clean = text.toLowerCase();
+      // Keep letters/numbers, strip punctuation around
+      clean = clean.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+      if (!clean) return false;
+
+      if (CHANGE_WORDS.has(clean)) return true;
+      if (MEDICAL_TERMS.has(clean)) return true;
+      if (COMMON_MEDICATIONS.has(clean)) return true;
+
+      for (const stem of STEMS) {
+        if (clean.startsWith(stem) || clean.endsWith(stem)) return true;
+      }
+
+      if (clean.length >= 5) {
+        for (const suf of MEDICATION_SUFFIXES) {
+          if (clean.endsWith(suf)) return true;
+        }
+      }
+
+      return false;
+    }
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg || "";
+      statusEl.className = "status" + (isError ? " error" : "");
+    }
+
+    function updateWordBank(words) {
+      if (!words || words.length === 0) {
+        wordBankEl.innerHTML = "<em>No key medical/change terms were removed (or detected).</em>";
+        wordCountBadge.style.display = "none";
+        return;
+      }
+      const unique = Array.from(new Set(words));
+
+      // Shuffle for a quiz-like feel
+      for (let i = unique.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [unique[i], unique[j]] = [unique[j], unique[i]];
+      }
+
+      wordCountBadge.textContent = unique.length + " terms";
+      wordCountBadge.style.display = "inline-block";
+
+      const items = unique.map(w => `<li>${w}</li>`).join("");
+      wordBankEl.innerHTML = `<ul>${items}</ul>`;
+    }
+
+    function drawOriginal() {
+      if (!img.src) return;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      originalDataUrl = canvas.toDataURL("image/png");
+    }
+
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        processBtn.disabled = true;
+        resetBtn.disabled = true;
+        setStatus("");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        img = new Image();
+        img.onload = () => {
+          drawOriginal();
+          processBtn.disabled = false;
+          resetBtn.disabled = false;
+          setStatus("Image loaded. Choose difficulty, then tap “Generate Study Sheet”.");
+          updateWordBank([]);
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    resetBtn.addEventListener('click', () => {
+      if (!originalDataUrl) return;
+      const baseImg = new Image();
+      baseImg.onload = () => {
+        canvas.width = baseImg.width;
+        canvas.height = baseImg.height;
+        ctx.drawImage(baseImg, 0, 0);
+        setStatus("Image reset to original.");
+        updateWordBank([]);
+      };
+      baseImg.src = originalDataUrl;
+    });
+
+    processBtn.addEventListener('click', async () => {
+      if (!img.src) return;
+
+      setStatus("Running OCR and finding medical/anatomy terms, medications, and change words…");
+      processBtn.disabled = true;
+
+      try {
+        drawOriginal();
+
+        const result = await Tesseract.recognize(img, "eng", {
+          logger: m => {
+            // console.log(m);
+          }
+        });
+
+        const words = result.data.words || [];
+        const candidates = [];
+
+        words.forEach(w => {
+          const rawText = w.text || "";
+          if (!rawText.trim()) return;
+
+          if (isMedicalOrChangeWord(rawText)) {
+            const { x0, y0, x1, y1 } = w.bbox;
+            candidates.push({
+              text: rawText,
+              bbox: { x0, y0, x1, y1 }
+            });
+          }
+        });
+
+        if (candidates.length === 0) {
+          setStatus("No medical/anatomy/change words were confidently detected.", true);
+          updateWordBank([]);
+          processBtn.disabled = false;
+          return;
+        }
+
+        const difficulty = difficultySelect.value;
+        const proportion = DIFFICULTY_LEVELS[difficulty] ?? DIFFICULTY_LEVELS.medium;
+        const totalToHide = Math.max(1, Math.round(candidates.length * proportion));
+
+        const shuffled = candidates.slice();
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        const toHide = shuffled.slice(0, totalToHide);
+
+        drawOriginal();
+
+        ctx.fillStyle = "#ffffff";
+        const removedWords = [];
+
+        toHide.forEach(({ text, bbox }) => {
+          const padding = 3;
+          const x = bbox.x0 - padding;
+          const y = bbox.y0 - padding;
+          const w = (bbox.x1 - bbox.x0) + padding * 2;
+          const h = (bbox.y1 - bbox.y0) + padding * 2;
+          ctx.fillRect(x, y, w, h);
+          removedWords.push(text);
+        });
+
+        setStatus(`Done! Removed ${removedWords.length} term(s) at ${difficulty} difficulty.`);
+        updateWordBank(removedWords);
+      } catch (err) {
+        console.error(err);
+        setStatus("Something went wrong while processing the image. Try a clearer image, or refresh the page.", true);
+      } finally {
+        processBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
