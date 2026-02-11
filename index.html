@@ -82,24 +82,56 @@
         grid-template-columns: 1fr;
       }
     }
-    .canvas-wrapper {
+
+    /* Page image + overlay */
+    .page-wrapper {
       border: 1px solid #ddd;
       border-radius: 6px;
       padding: 0.5rem;
       background: #fafafa;
     }
-    canvas {
-      width: 100%;
+    .page-container {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #pageImage {
+      max-width: 100%;
       height: auto;
       display: block;
-      border-radius: 4px;
-      background: #ffffff;
     }
+    .blank-zone {
+      position: absolute;
+      background: rgba(255,255,255,0.95);
+      border-bottom: 2px solid #555;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      text-align: center;
+      padding: 1px;
+      box-sizing: border-box;
+      transition: box-shadow 0.15s, border-color 0.15s, background-color 0.15s;
+    }
+    .blank-zone.hover {
+      box-shadow: 0 0 0 2px rgba(0,123,255,0.4);
+    }
+    .blank-zone.correct {
+      border-color: #2e7d32;
+      background: rgba(200, 245, 200, 0.95);
+    }
+    .blank-zone.incorrect {
+      border-color: #c62828;
+      background: rgba(255, 205, 210, 0.95);
+    }
+
     .hint {
       font-size: 0.78rem;
       color: #777;
       margin-top: 0.35rem;
     }
+
+    /* Sidebar */
     .sidebar {
       border-left: 1px solid #eee;
       padding-left: 1rem;
@@ -131,13 +163,9 @@
       max-height: 400px;
       overflow-y: auto;
       font-size: 0.88rem;
-    }
-    .word-bank ul {
-      padding-left: 1.1rem;
-      margin: 0.15rem 0 0;
-    }
-    .word-bank li {
-      margin: 0.12rem 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
     }
     .badge {
       display: inline-block;
@@ -159,13 +187,59 @@
     .error {
       color: #b00020;
     }
+
+    .draggable-word {
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #ffffff;
+      cursor: grab;
+      user-select: none;
+      white-space: nowrap;
+      font-size: 0.8rem;
+    }
+    .draggable-word:active {
+      cursor: grabbing;
+    }
+
+    /* Custom mode panel */
+    .custom-panel {
+      margin-top: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid #eee;
+      background: #fafafa;
+      font-size: 0.85rem;
+    }
+    .custom-panel h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.9rem;
+    }
+    .custom-list {
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 0.25rem 0;
+      border-top: 1px solid #eee;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 0.4rem;
+    }
+    .custom-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin: 0.1rem 0;
+    }
+    .custom-item small {
+      color: #777;
+      font-size: 0.75rem;
+    }
   </style>
 </head>
 <body>
   <div class="app">
     <h1>Med Study Sheet Generator</h1>
     <p class="subtitle">
-      Upload your notes, automatically hide anatomy/phys, medical terms, meds, and change words, and get a word bank to quiz yourself.
+      Upload your notes, have key terms removed, then drag words/numbers back into place. Custom mode lets you pick the exact blanks.
     </p>
 
     <div class="controls">
@@ -173,42 +247,58 @@
       <label>
         <span class="difficulty-label">Difficulty:</span>
         <select id="difficultySelect">
-          <option value="easy">Easy (≈35% of key words removed)</option>
-          <option value="medium" selected>Medium (≈65% removed)</option>
-          <option value="hard">Hard (≈100% removed)</option>
+          <option value="very_easy">Very Easy (few terms, no numbers)</option>
+          <option value="easy">Easy (more terms, no numbers)</option>
+          <option value="medium" selected>Medium (terms + some numbers)</option>
+          <option value="hard">Hard (most terms + numbers)</option>
+          <option value="insane">Insane (almost everything removed)</option>
+          <option value="custom">Custom (you choose terms)</option>
         </select>
       </label>
       <button id="processBtn" disabled>Generate Study Sheet</button>
-      <button id="resetBtn" disabled>Reset to Original</button>
     </div>
     <div id="status" class="status"></div>
 
     <div class="layout">
       <div>
-        <div class="canvas-wrapper">
-          <canvas id="sheetCanvas"></canvas>
+        <div class="page-wrapper">
+          <div id="pageContainer" class="page-container">
+            <img id="pageImage" alt="Uploaded sheet will appear here">
+            <!-- Blank zones get injected here -->
+          </div>
         </div>
         <p class="hint">
-          • For best results, use a clear, straight-on image with readable text.<br>
-          • After processing, long-press the image → <strong>Save Image</strong> to keep your practice sheet.
+          • Drag words from the word bank onto the blanks. Green = correct, red = incorrect.<br>
+          • Higher difficulties remove more terms and numbers. Custom lets you pick exactly which ones.
         </p>
+
+        <div id="customPanel" class="custom-panel" style="display:none;">
+          <h3>Custom mode: choose which terms/numbers to remove</h3>
+          <p style="margin-top:0;">
+            Check the terms you want turned into blanks, then tap <strong>Apply custom blanks</strong>.
+          </p>
+          <div id="customList" class="custom-list">
+            <!-- Checkbox list of terms goes here -->
+          </div>
+          <button id="applyCustomBtn">Apply custom blanks</button>
+        </div>
       </div>
 
       <aside class="sidebar">
         <h2>Word Bank <span id="wordCountBadge" class="badge" style="display:none;"></span></h2>
-        <p>These are the terms and change-words that were removed from the sheet.</p>
+        <p>Drag each word/number onto the correct blank on the page.</p>
         <div id="wordBank" class="word-bank">
           <em>No sheet processed yet.</em>
         </div>
         <p class="small-note">
-          Note: OCR may miss some words or mis-read them. If a key term is missing from the word bank, it might not have been recognized.
+          Note: OCR may miss some words or mis-read them. This is a study helper, not a perfect grader.
         </p>
       </aside>
     </div>
   </div>
 
   <script>
-    // Register service worker for PWA/offline use
+    // PWA service worker
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js').catch(err => {
@@ -217,28 +307,34 @@
       });
     }
 
-    // --- Basic references ---
     const imageInput = document.getElementById('imageInput');
     const processBtn = document.getElementById('processBtn');
-    const resetBtn = document.getElementById('resetBtn');
     const statusEl = document.getElementById('status');
     const difficultySelect = document.getElementById('difficultySelect');
-    const canvas = document.getElementById('sheetCanvas');
-    const ctx = canvas.getContext('2d');
+    const pageImage = document.getElementById('pageImage');
+    const pageContainer = document.getElementById('pageContainer');
     const wordBankEl = document.getElementById('wordBank');
     const wordCountBadge = document.getElementById('wordCountBadge');
 
-    let img = new Image();
-    let originalDataUrl = null;
+    const customPanel = document.getElementById('customPanel');
+    const customList = document.getElementById('customList');
+    const applyCustomBtn = document.getElementById('applyCustomBtn');
 
-    // Difficulty → proportion of key terms to hide
-    const DIFFICULTY_LEVELS = {
-      easy: 0.35,
-      medium: 0.65,
-      hard: 1.0
+    let img = new Image();
+    let imgDataUrl = null;
+
+    // For custom mode: term map from normalized term -> { display, isNumber, occurrences: [{bbox}] }
+    let customTermMap = null;
+
+    const DIFFICULTY_CONFIG = {
+      very_easy: { proportion: 0.25, includeNumbers: false },
+      easy:      { proportion: 0.4,  includeNumbers: false },
+      medium:    { proportion: 0.6,  includeNumbers: true  },
+      hard:      { proportion: 0.8,  includeNumbers: true  },
+      insane:    { proportion: 1.0,  includeNumbers: true  }
+      // custom handled separately
     };
 
-    // Change words (directionality, trends)
     const CHANGE_WORDS = new Set([
       "increase","increased","increases","increasing",
       "decrease","decreased","decreases","decreasing",
@@ -254,9 +350,7 @@
       "worsen","worsens","worsened","worsening"
     ]);
 
-    // Core anatomy/physiology + general medical terminology
     const MEDICAL_TERMS = new Set([
-      // anatomy/physiology
       "artery","arteries","vein","veins","capillary","capillaries","arteriole","venule",
       "heart","atria","atrium","ventricle","ventricles","aorta","pulmonary",
       "cardiac","myocardium","endocardium","pericardium",
@@ -284,8 +378,6 @@
       "immune","immunity","antibody","antibodies","antigen","antigens","phagocyte","phagocytes",
       "macrophage","macrophages","receptor","receptors","afferent","efferent","sensory","motor",
       "systole","diastole","ventilation","perfusion","filtration","reabsorption","secretion",
-
-      // pathophys & general med terminology
       "hypertension","hypotension","tachycardia","bradycardia","tachypnea","bradypnea",
       "edema","sepsis","septic","shock","infarction","ischemia","ischemic","necrosis","necrotic",
       "inflammation","inflamed","infected","infection","chronic","acute","subacute",
@@ -304,19 +396,16 @@
       "bronchodilator","diuretic","sedative","anesthetic"
     ]);
 
-    // Medical/anatomy stems (prefix/suffix-like patterns)
     const STEMS = [
       "cardio","neuro","hepat","nephro","pulmon","gastro","derm","dermo",
       "osteo","myo","encephal","angi","phleb","arthr","cranio","hemo","hema","pharm","onc","uro","pneumo"
     ];
 
-    // Medication suffix patterns (very heuristic)
     const MEDICATION_SUFFIXES = [
       "olol","pril","sartan","dipine","statin","cillin","cycline","mycin","micin",
       "floxacin","azole","prazole","caine","mab","nib","tidine","sone","sonide","solone","dine","dopa","pramide"
     ];
 
-    // Common medication names (not exhaustive, just a boost)
     const COMMON_MEDICATIONS = new Set([
       "aspirin","ibuprofen","acetaminophen","paracetamol","naproxen",
       "warfarin","heparin","enoxaparin","apixaban","rivaroxaban",
@@ -333,11 +422,23 @@
       "diphenhydramine","loratadine","cetirizine"
     ]);
 
+    function normalizeWord(text) {
+      return text
+        .toLowerCase()
+        .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+    }
+
+    function isNumberWord(text) {
+      if (!text) return false;
+      const trimmed = text.trim();
+      if (!trimmed) return false;
+      // digits, /, ., %, +, -
+      return /^[0-9][0-9./:%+-]*$/.test(trimmed);
+    }
+
     function isMedicalOrChangeWord(text) {
       if (!text) return false;
-      let clean = text.toLowerCase();
-      // Keep letters/numbers, strip punctuation around
-      clean = clean.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+      const clean = normalizeWord(text);
       if (!clean) return false;
 
       if (CHANGE_WORDS.has(clean)) return true;
@@ -362,88 +463,170 @@
       statusEl.className = "status" + (isError ? " error" : "");
     }
 
+    function clearBlankZones() {
+      const existing = pageContainer.querySelectorAll(".blank-zone");
+      existing.forEach(el => el.remove());
+    }
+
     function updateWordBank(words) {
+      wordBankEl.innerHTML = "";
+      wordCountBadge.style.display = "none";
+
       if (!words || words.length === 0) {
-        wordBankEl.innerHTML = "<em>No key medical/change terms were removed (or detected).</em>";
-        wordCountBadge.style.display = "none";
+        wordBankEl.innerHTML = "<em>No key terms/numbers were removed (or detected).</em>";
         return;
       }
-      const unique = Array.from(new Set(words));
 
-      // Shuffle for a quiz-like feel
+      const unique = Array.from(new Set(words));
       for (let i = unique.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [unique[i], unique[j]] = [unique[j], unique[i]];
       }
 
-      wordCountBadge.textContent = unique.length + " terms";
+      wordCountBadge.textContent = unique.length + " items";
       wordCountBadge.style.display = "inline-block";
 
-      const items = unique.map(w => `<li>${w}</li>`).join("");
-      wordBankEl.innerHTML = `<ul>${items}</ul>`;
+      unique.forEach(w => {
+        const tile = document.createElement("div");
+        tile.className = "draggable-word";
+        tile.draggable = true;
+        tile.textContent = w;
+        tile.dataset.word = normalizeWord(w);
+
+        tile.addEventListener("dragstart", e => {
+          e.dataTransfer.setData("text/plain", w);
+          tile.classList.add("dragging");
+        });
+        tile.addEventListener("dragend", () => {
+          tile.classList.remove("dragging");
+        });
+
+        wordBankEl.appendChild(tile);
+      });
     }
 
-    function drawOriginal() {
-      if (!img.src) return;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      originalDataUrl = canvas.toDataURL("image/png");
-    }
-
-    imageInput.addEventListener('change', (e) => {
+    imageInput.addEventListener("change", e => {
       const file = e.target.files[0];
       if (!file) {
         processBtn.disabled = true;
-        resetBtn.disabled = true;
         setStatus("");
         return;
       }
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = ev => {
         img = new Image();
         img.onload = () => {
-          drawOriginal();
+          imgDataUrl = ev.target.result;
+          pageImage.src = imgDataUrl;
           processBtn.disabled = false;
-          resetBtn.disabled = false;
-          setStatus("Image loaded. Choose difficulty, then tap “Generate Study Sheet”.");
+          clearBlankZones();
           updateWordBank([]);
+          customPanel.style.display = "none";
+          customTermMap = null;
+          setStatus("Image loaded. Choose difficulty, then tap “Generate Study Sheet”.");
         };
         img.src = ev.target.result;
       };
       reader.readAsDataURL(file);
     });
 
-    resetBtn.addEventListener('click', () => {
-      if (!originalDataUrl) return;
-      const baseImg = new Image();
-      baseImg.onload = () => {
-        canvas.width = baseImg.width;
-        canvas.height = baseImg.height;
-        ctx.drawImage(baseImg, 0, 0);
-        setStatus("Image reset to original.");
-        updateWordBank([]);
-      };
-      baseImg.src = originalDataUrl;
-    });
+    function createBlanksFromOccurrences(occurrences, removedWords) {
+      const rect = pageImage.getBoundingClientRect();
+      const scaleX = rect.width / img.naturalWidth;
+      const scaleY = rect.height / img.naturalHeight;
 
-    processBtn.addEventListener('click', async () => {
-      if (!img.src) return;
+      occurrences.forEach((occ, index) => {
+        const { text, bbox, normAnswer } = occ;
 
-      setStatus("Running OCR and finding medical/anatomy terms, medications, and change words…");
-      processBtn.disabled = true;
+        const zone = document.createElement("div");
+        zone.className = "blank-zone";
+        zone.dataset.answer = normAnswer;
+        zone.dataset.id = "blank-custom-" + index;
 
-      try {
-        drawOriginal();
+        const padding = 2;
+        const x = bbox.x0 * scaleX - padding;
+        const y = bbox.y0 * scaleY - padding;
+        const w = (bbox.x1 - bbox.x0) * scaleX + padding * 2;
+        const h = (bbox.y1 - bbox.y0) * scaleY + padding * 2;
 
-        const result = await Tesseract.recognize(img, "eng", {
-          logger: m => {
-            // console.log(m);
-          }
+        zone.style.left = x + "px";
+        zone.style.top = y + "px";
+        zone.style.width = w + "px";
+        zone.style.height = h + "px";
+
+        zone.addEventListener("dragover", e => {
+          e.preventDefault();
+          zone.classList.add("hover");
+        });
+        zone.addEventListener("dragleave", () => {
+          zone.classList.remove("hover");
+        });
+        zone.addEventListener("drop", e => {
+          e.preventDefault();
+          zone.classList.remove("hover");
+          const droppedText = e.dataTransfer.getData("text/plain") || "";
+          const droppedNorm = normalizeWord(droppedText);
+          const correct = droppedNorm && droppedNorm === zone.dataset.answer;
+          zone.textContent = droppedText;
+          zone.classList.remove("correct", "incorrect");
+          zone.classList.add(correct ? "correct" : "incorrect");
         });
 
+        pageContainer.appendChild(zone);
+        removedWords.push(text);
+      });
+    }
+
+    applyCustomBtn.addEventListener("click", () => {
+      if (!customTermMap) {
+        setStatus("No custom terms available. Run Generate Study Sheet in Custom mode first.", true);
+        return;
+      }
+      clearBlankZones();
+      const checked = Array.from(customList.querySelectorAll("input[name='customTerm']:checked"));
+      if (checked.length === 0) {
+        setStatus("No terms selected. Check at least one term to turn into blanks.", true);
+        return;
+      }
+
+      const removedWords = [];
+      checked.forEach(input => {
+        const key = input.value;
+        const termData = customTermMap.get(key);
+        if (!termData) return;
+        const occurrences = termData.occurrences.map(occ => ({
+          text: termData.display,
+          bbox: occ.bbox,
+          normAnswer: key
+        }));
+        createBlanksFromOccurrences(occurrences, removedWords);
+      });
+
+      updateWordBank(removedWords);
+      setStatus(`Custom blanks created for ${checked.length} selected term(s). Drag words onto the blanks.`);
+    });
+
+    processBtn.addEventListener("click", async () => {
+      if (!imgDataUrl) return;
+
+      setStatus("Running OCR and selecting words/numbers based on difficulty…");
+      processBtn.disabled = true;
+      clearBlankZones();
+      updateWordBank([]);
+      customPanel.style.display = "none";
+      customTermMap = null;
+
+      try {
+        await new Promise(resolve => {
+          if (pageImage.complete) resolve();
+          else pageImage.onload = () => resolve();
+        });
+
+        const result = await Tesseract.recognize(img, "eng", { logger: () => {} });
         const words = result.data.words || [];
-        const candidates = [];
+
+        const medicalCandidates = [];
+        const numberCandidates = [];
 
         words.forEach(w => {
           const rawText = w.text || "";
@@ -451,48 +634,152 @@
 
           if (isMedicalOrChangeWord(rawText)) {
             const { x0, y0, x1, y1 } = w.bbox;
-            candidates.push({
-              text: rawText,
-              bbox: { x0, y0, x1, y1 }
-            });
+            medicalCandidates.push({ text: rawText, bbox: { x0, y0, x1, y1 } });
+          } else if (isNumberWord(rawText)) {
+            const { x0, y0, x1, y1 } = w.bbox;
+            numberCandidates.push({ text: rawText, bbox: { x0, y0, x1, y1 } });
           }
         });
 
-        if (candidates.length === 0) {
-          setStatus("No medical/anatomy/change words were confidently detected.", true);
+        if (medicalCandidates.length === 0 && numberCandidates.length === 0) {
+          setStatus("No medical/change words or numbers were confidently detected.", true);
           updateWordBank([]);
           processBtn.disabled = false;
           return;
         }
 
-        const difficulty = difficultySelect.value;
-        const proportion = DIFFICULTY_LEVELS[difficulty] ?? DIFFICULTY_LEVELS.medium;
-        const totalToHide = Math.max(1, Math.round(candidates.length * proportion));
+        const diffKey = difficultySelect.value || "medium";
 
-        const shuffled = candidates.slice();
+        if (diffKey === "custom") {
+          // Build term map for custom selection
+          const termMap = new Map();
+
+          const addToMap = (candidate, isNumber) => {
+            const norm = normalizeWord(candidate.text);
+            if (!norm && !isNumber) return;
+            const key = norm || candidate.text.trim(); // for numbers keep original if normalize empties
+            if (!termMap.has(key)) {
+              termMap.set(key, {
+                display: candidate.text,
+                isNumber,
+                occurrences: []
+              });
+            }
+            termMap.get(key).occurrences.push({ bbox: candidate.bbox });
+          };
+
+          medicalCandidates.forEach(c => addToMap(c, false));
+          numberCandidates.forEach(c => addToMap(c, true));
+
+          if (termMap.size === 0) {
+            setStatus("No usable terms found for custom mode.", true);
+            processBtn.disabled = false;
+            return;
+          }
+
+          // Render list
+          customList.innerHTML = "";
+          termMap.forEach((value, key) => {
+            const row = document.createElement("div");
+            row.className = "custom-item";
+
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.name = "customTerm";
+            checkbox.value = key;
+
+            const label = document.createElement("label");
+            label.textContent = value.display;
+
+            const meta = document.createElement("small");
+            meta.textContent = value.isNumber ? "number" : "term";
+
+            row.appendChild(checkbox);
+            row.appendChild(label);
+            row.appendChild(meta);
+
+            customList.appendChild(row);
+          });
+
+          customTermMap = termMap;
+          customPanel.style.display = "block";
+          setStatus("Custom mode: select which terms/numbers to remove, then tap “Apply custom blanks”.");
+          processBtn.disabled = false;
+          return;
+        }
+
+        // Non-custom modes: automatic selection
+        const config = DIFFICULTY_CONFIG[diffKey] || DIFFICULTY_CONFIG.medium;
+        let allCandidates = medicalCandidates.slice();
+        if (config.includeNumbers) {
+          allCandidates = allCandidates.concat(numberCandidates);
+        }
+
+        if (allCandidates.length === 0) {
+          setStatus("No candidates found for this difficulty (try easier or different image).", true);
+          processBtn.disabled = false;
+          return;
+        }
+
+        const proportion = config.proportion;
+        const totalToHide = Math.max(1, Math.round(allCandidates.length * proportion));
+
+        const shuffled = allCandidates.slice();
         for (let i = shuffled.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
         }
         const toHide = shuffled.slice(0, totalToHide);
 
-        drawOriginal();
+        const rect = pageImage.getBoundingClientRect();
+        const scaleX = rect.width / img.naturalWidth;
+        const scaleY = rect.height / img.naturalHeight;
 
-        ctx.fillStyle = "#ffffff";
         const removedWords = [];
 
-        toHide.forEach(({ text, bbox }) => {
-          const padding = 3;
-          const x = bbox.x0 - padding;
-          const y = bbox.y0 - padding;
-          const w = (bbox.x1 - bbox.x0) + padding * 2;
-          const h = (bbox.y1 - bbox.y0) + padding * 2;
-          ctx.fillRect(x, y, w, h);
+        toHide.forEach(({ text, bbox }, index) => {
+          const norm = normalizeWord(text) || text.trim();
+
+          const zone = document.createElement("div");
+          zone.className = "blank-zone";
+          zone.dataset.answer = norm;
+          zone.dataset.id = "blank-" + index;
+
+          const padding = 2;
+          const x = bbox.x0 * scaleX - padding;
+          const y = bbox.y0 * scaleY - padding;
+          const w = (bbox.x1 - bbox.x0) * scaleX + padding * 2;
+          const h = (bbox.y1 - bbox.y0) * scaleY + padding * 2;
+
+          zone.style.left = x + "px";
+          zone.style.top = y + "px";
+          zone.style.width = w + "px";
+          zone.style.height = h + "px";
+
+          zone.addEventListener("dragover", e => {
+            e.preventDefault();
+            zone.classList.add("hover");
+          });
+          zone.addEventListener("dragleave", () => {
+            zone.classList.remove("hover");
+          });
+          zone.addEventListener("drop", e => {
+            e.preventDefault();
+            zone.classList.remove("hover");
+            const droppedText = e.dataTransfer.getData("text/plain") || "";
+            const droppedNorm = normalizeWord(droppedText) || droppedText.trim();
+            const correct = droppedNorm && droppedNorm === zone.dataset.answer;
+            zone.textContent = droppedText;
+            zone.classList.remove("correct", "incorrect");
+            zone.classList.add(correct ? "correct" : "incorrect");
+          });
+
+          pageContainer.appendChild(zone);
           removedWords.push(text);
         });
 
-        setStatus(`Done! Removed ${removedWords.length} term(s) at ${difficulty} difficulty.`);
         updateWordBank(removedWords);
+        setStatus(`Done! Created ${toHide.length} blanks at ${diffKey.replace('_',' ')} difficulty.`);
       } catch (err) {
         console.error(err);
         setStatus("Something went wrong while processing the image. Try a clearer image, or refresh the page.", true);
