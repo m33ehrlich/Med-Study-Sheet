@@ -1,4 +1,4 @@
-const CACHE_NAME = 'med-study-sheet-cache-v1';
+const CACHE_NAME = 'med-study-sheet-cache-v2';
 const ASSETS = [
   './',
   './index.html',
